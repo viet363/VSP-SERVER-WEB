@@ -22,16 +22,21 @@ import mobileRecommendRoute from "./routes/mobile/recommendMobile.js";
 
 const app = express();
 
-const frontendUrl = "http://localhost:3000";
-const mobileUrl = "http://192.168.1.100:8081";
 const corsOptions = {
-    origin: ["http://localhost:3000", "http://192.168.1.100:8081", "http://192.168.1.100"],
+    origin: [
+        "http://localhost:3000", 
+        "http://192.168.1.100:8081",
+        "http://192.168.1.100:4000",
+        "http://192.168.3.84:4000", 
+        "http://192.168.3.84"      
+    ],
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE", 
     credentials: true,
     optionsSuccessStatus: 204 
 };
 
-app.use(cors(corsOptions)); 
+app.use(cors(corsOptions));
+
 app.use(express.json());
 
 app.use("/api/categories", categoriesRoute);
