@@ -1,7 +1,6 @@
 import bcrypt from "bcrypt";
 import { db } from "../db.js";
 
-// ================= REGISTER =================
 export const register = async (req, res) => {
     const { username, password } = req.body;
 
@@ -10,7 +9,6 @@ export const register = async (req, res) => {
     }
 
     try {
-        // Kiểm tra username đã tồn tại chưa
         const [existing] = await db.query(
             "SELECT Id FROM user WHERE Username = ?",
             [username]
@@ -20,10 +18,8 @@ export const register = async (req, res) => {
             return res.status(400).json({ message: "Username đã tồn tại" });
         }
 
-        // Mã hóa mật khẩu
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Thêm user mới vào bảng user
         const [result] = await db.query(
             "INSERT INTO user (Username, Password, Create_at) VALUES (?, ?, NOW())",
             [username, hashedPassword]
@@ -31,7 +27,6 @@ export const register = async (req, res) => {
 
         const userId = result.insertId;
 
-        // Gán role admin cho user mới
         const [role] = await db.query(
             "SELECT Id FROM role WHERE Name = ?",
             ["admin"]
@@ -61,7 +56,6 @@ export const register = async (req, res) => {
     }
 };
 
-// ================= LOGIN =================
 export const login = async (req, res) => {
     const { username, password } = req.body;
 
