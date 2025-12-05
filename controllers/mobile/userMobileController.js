@@ -1,31 +1,8 @@
+// controllers/mobile/userMobileController.js
 import { db } from "../../db.js";
 import bcrypt from "bcrypt";
-import multer from "multer";
+import fs from "fs";
 import path from "path";
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/avatars/');
-  },
-  filename: function (req, file, cb) {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, 'avatar-' + uniqueSuffix + path.extname(file.originalname));
-  }
-});
-
-export const upload = multer({ 
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 
-  },
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Chỉ chấp nhận file ảnh!'), false);
-    }
-  }
-});
 
 export const getUserMobile = async (req, res) => {
   try {
@@ -76,16 +53,18 @@ export const updateUserProfile = async (req, res) => {
     const { fullname, email, phone } = req.body;
 
     // Kiểm tra email đã tồn tại chưa
-    const [existingUsers] = await db.query(
-      "SELECT * FROM user WHERE Email = ? AND Id != ?",
-      [email, userId]
-    );
+    if (email) {
+      const [existingUsers] = await db.query(
+        "SELECT * FROM user WHERE Email = ? AND Id != ?",
+        [email, userId]
+      );
 
-    if (existingUsers.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Email đã được sử dụng" 
-      });
+      if (existingUsers.length > 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: "Email đã được sử dụng" 
+        });
+      }
     }
 
     await db.query(
@@ -113,56 +92,78 @@ export const updateUserProfile = async (req, res) => {
   }
 };
 
-
 export const updateUserWithAvatar = async (req, res) => {
   try {
-    const userId = req.user.Id; 
-    const { fullname, email, phone } = req.body;
-    const avatarPath = req.file ? `/uploads/avatars/${req.file.filename}` : null;
-
-    // Kiểm tra email đã tồn tại chưa
-    const [existingUsers] = await db.query(
-      "SELECT * FROM user WHERE Email = ? AND Id != ?",
-      [email, userId]
-    );
-
-    if (existingUsers.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Email đã được sử dụng" 
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng chọn file ảnh"
       });
     }
 
-    let updateQuery = "UPDATE user SET Fullname = ?, Email = ?, Phone = ?, Update_at = CURRENT_TIMESTAMP";
-    let queryParams = [fullname, email, phone];
+    const userId = req.user.Id; 
+    const avatarPath = `/uploads/avatars/${req.file.filename}`;
+    const fullUrl = `${req.protocol}://${req.get('host')}${avatarPath}`;
 
-    if (avatarPath) {
-      updateQuery += ", Avatar = ?";
-      queryParams.push(avatarPath);
+    console.log("Uploading avatar for user:", userId);
+    console.log("Avatar saved at:", req.file.path);
+    console.log("Avatar URL:", fullUrl);
+
+    // Cập nhật database
+    const [result] = await db.query(
+      'UPDATE user SET Avatar = ?, Update_at = NOW() WHERE Id = ?',
+      [fullUrl, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      // Xóa file đã upload nếu update thất bại
+      fs.unlinkSync(req.file.path);
+      return res.status(404).json({
+        success: false,
+        message: "Người dùng không tồn tại"
+      });
     }
 
-    updateQuery += " WHERE Id = ?";
-    queryParams.push(id);
-
-    await db.query(updateQuery, queryParams);
-
-    // Lấy lại thông tin user sau khi update
-    const [updatedUsers] = await db.query(
+    // Lấy thông tin user mới
+    const [users] = await db.query(
       "SELECT Id, Username, Email, Fullname, Gender, Birthday, Avatar, Phone, Create_at, Update_at, LoginType FROM user WHERE Id = ?",
-      [id]
+      [userId]
     );
 
     res.json({
       success: true,
-      message: "Cập nhật thông tin thành công",
-      user: updatedUsers[0]
+      message: "Cập nhật avatar thành công",
+      avatarUrl: fullUrl,
+      user: {
+        id: users[0].Id,
+        username: users[0].Username,
+        email: users[0].Email,
+        fullname: users[0].Fullname,
+        gender: users[0].Gender,
+        birthday: users[0].Birthday,
+        avatar: users[0].Avatar,
+        phone: users[0].Phone,
+        createAt: users[0].Create_at,
+        updateAt: users[0].Update_at,
+        loginType: users[0].LoginType
+      }
     });
 
   } catch (error) {
-    console.error("Update profile with avatar error:", error);
-    res.status(500).json({ 
-      success: false, 
-      message: "Lỗi server" 
+    console.error("Error uploading avatar:", error);
+    
+    // Xóa file nếu có lỗi
+    if (req.file && req.file.path) {
+      try {
+        fs.unlinkSync(req.file.path);
+      } catch (e) {
+        console.error("Error deleting file:", e);
+      }
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: "Lỗi server khi upload avatar"
     });
   }
 };

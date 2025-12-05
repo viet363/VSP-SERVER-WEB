@@ -19,8 +19,9 @@ import mobileNotificationRoute from "./routes/mobile/notificationMobile.js";
 import mobilePaymentRoute from "./routes/mobile/paymentMobile.js";
 import mobileUserRoute from "./routes/mobile/userMobile.js";
 import mobileRecommendRoute from "./routes/mobile/recommendMobile.js";
+import path from "path";
 
-const app = express();
+const app = express(); // PHẢI KHAI BÁO APP TRƯỚC KHI SỬ DỤNG
 
 const corsOptions = {
     origin: [
@@ -36,9 +37,12 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
 app.use(express.json());
 
+// THÊM CÁC STATIC FILE CONFIG Ở ĐÂY (SAU KHI APP ĐÃ ĐƯỢC KHAI BÁO)
+app.use('/uploads', express.static('public/uploads'));
+
+// Routes
 app.use("/api/categories", categoriesRoute);
 app.use("/api/products", productsRoute);
 app.use("/api/customers", customersRoute);
@@ -58,7 +62,6 @@ app.use("/api/mobile/notification", mobileNotificationRoute);
 app.use("/api/mobile/payment", mobilePaymentRoute);
 app.use("/api/mobile/user", mobileUserRoute);
 app.use("/api/mobile/recommend", mobileRecommendRoute);
-
 
 app.get("/", (req, res) => res.send("VPS backend is running"));
 

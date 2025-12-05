@@ -1,13 +1,13 @@
 import qs from "qs";
 import crypto from "crypto";
+import { db } from "../../db.js";
 
 export const createVNPayUrlMobile = async (req, res) => {
   try {
     const { orderId, amount } = req.query;
 
-    // Dùng domain thực hoặc ngrok thay thế
     const vnp_Url = "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
-    const vnp_ReturnUrl = "https://yourdomain.com/api/mobile/payment/return";
+    const vnp_ReturnUrl = "http://localhost:4000/api/mobile/payment/return";
 
     const vnp_TmnCode = "LBU9HNGB";
     const vnp_HashSecret = "8AY3Q3OC7IML0WOWLMBX9ZZGFLDB8TDZ";
@@ -40,63 +40,80 @@ export const createVNPayUrlMobile = async (req, res) => {
       vnp_OrderInfo: `Thanh toán đơn hàng ${orderId}`,
       vnp_OrderType: "other",
       vnp_ReturnUrl,
-      vnp_TxnRef: orderId,
+      vnp_TxnRef: `${Date.now()}-${orderId}`, 
     };
 
     const sorted = Object.keys(params)
       .sort()
-      .reduce((a, b) => ({ ...a, [b]: params[b] }), {});
+      .reduce((acc, key) => {
+        acc[key] = params[key];
+        return acc;
+      }, {});
 
     const signData = qs.stringify(sorted, { encode: false });
-    const signed = crypto
-      .createHmac("sha512", vnp_HashSecret)
-      .update(Buffer.from(signData, "utf-8"))
-      .digest("hex");
+    const hmac = crypto.createHmac("sha512", vnp_HashSecret);
+    const signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
 
     sorted.vnp_SecureHash = signed;
 
     const paymentUrl = vnp_Url + "?" + qs.stringify(sorted, { encode: false });
 
+    console.log("Generated VNPay URL for order:", orderId);
     res.json({ success: true, paymentUrl });
   } catch (error) {
     console.error("Error creating VNPay URL:", error);
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
+
 export const vnpayReturnMobile = async (req, res) => {
   try {
     let vnp_Params = req.query;
     const secureHash = vnp_Params.vnp_SecureHash;
 
+    const vnp_SecureHash = secureHash;
     delete vnp_Params.vnp_SecureHash;
     delete vnp_Params.vnp_SecureHashType;
 
     const sortedParams = Object.keys(vnp_Params)
       .sort()
-      .reduce((acc, key) => ({ ...acc, [key]: vnp_Params[key] }), {});
+      .reduce((acc, key) => {
+        acc[key] = vnp_Params[key];
+        return acc;
+      }, {});
 
     const signData = qs.stringify(sortedParams, { encode: false });
-
     const vnp_HashSecret = "8AY3Q3OC7IML0WOWLMBX9ZZGFLDB8TDZ";
-    const signed = crypto
-      .createHmac("sha512", vnp_HashSecret)
-      .update(Buffer.from(signData, "utf-8"))
-      .digest("hex");
+    
+    const hmac = crypto.createHmac("sha512", vnp_HashSecret);
+    const signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
+
+    console.log("VNPay Return - Received hash:", vnp_SecureHash);
+    console.log("VNPay Return - Calculated hash:", signed);
 
     if (secureHash !== signed) {
+      console.error("Invalid signature!");
+      console.log("Sign data:", signData);
       return res.json({
         success: false,
         message: "Chữ ký không hợp lệ",
+        receivedHash: secureHash,
+        calculatedHash: signed,
       });
     }
 
     const responseCode = vnp_Params.vnp_ResponseCode;
 
     if (responseCode === "00") {
-      const orderId = vnp_Params.vnp_TxnRef;
+      const vnp_TxnRef = vnp_Params.vnp_TxnRef;
+      const orderId = vnp_TxnRef.includes('-') 
+        ? vnp_TxnRef.split('-')[1] 
+        : vnp_TxnRef;
+      
       const amount = parseInt(vnp_Params.vnp_Amount) / 100;
 
-      // --- Cập nhật trạng thái đơn hàng ---
+      console.log(`Updating order ${orderId} to Paid status`);
+
       await db.query(
         `UPDATE orders 
          SET Order_status = 'Paid', Paid_date = NOW() 
@@ -122,4 +139,3 @@ export const vnpayReturnMobile = async (req, res) => {
     res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
-
