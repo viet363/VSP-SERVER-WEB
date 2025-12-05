@@ -6,11 +6,11 @@ export const getMyOrdersMobile = async (req, res) => {
 
     const [orders] = await db.query(
       `SELECT 
-        o.Id, o.UserId, o.Order_date as orderDate, o.Shipped_date as shippedDate,
-        o.Note, o.Ship_address as shipAddress, o.Ship_fee as shipFee,
-        o.Paid_date as paidDate, o.Order_status as orderStatus,
-        o.Payment_type as paymentType, o.Create_at as createAt,
-        o.Update_at as updateAt, o.AddressId,
+        o.Id, o.UserId, o.Order_date, o.Shipped_date,
+        o.Note, o.Ship_address, o.Ship_fee,
+        o.Paid_date, o.Order_status,
+        o.Payment_type, o.Create_at,
+        o.Update_at, o.AddressId,
         SUM(od.Quantity * od.Unit_price) as total
        FROM orders o
        LEFT JOIN order_detail od ON o.Id = od.OrderId
@@ -24,11 +24,11 @@ export const getMyOrdersMobile = async (req, res) => {
     for (let order of orders) {
       const [items] = await db.query(
         `SELECT 
-          od.Id, od.OrderId as orderId, od.ProductId as productId,
-          od.Quantity as quantity, od.Unit_price as unitPrice,
-          od.Discount_percentage as discountPercentage,
-          od.Discount_amount as discountAmount,
-          p.Product_name as productName, p.picUrl as productImage
+          od.Id, od.OrderId, od.ProductId,
+          od.Quantity, od.Unit_price,
+          od.Discount_percentage,
+          od.Discount_amount,
+          p.Product_name, p.picUrl
          FROM order_detail od
          JOIN product p ON p.Id = od.ProductId
          WHERE od.OrderId = ?`,
@@ -59,11 +59,11 @@ export const getOrderDetailMobile = async (req, res) => {
     // Lấy thông tin order
     const [orders] = await db.query(
       `SELECT 
-        o.Id, o.UserId, o.Order_date as orderDate, o.Shipped_date as shippedDate,
-        o.Note, o.Ship_address as shipAddress, o.Ship_fee as shipFee,
-        o.Paid_date as paidDate, o.Order_status as orderStatus,
-        o.Payment_type as paymentType, o.Create_at as createAt,
-        o.Update_at as updateAt, o.AddressId
+        o.Id, o.UserId, o.Order_date, o.Shipped_date,
+        o.Note, o.Ship_address, o.Ship_fee,
+        o.Paid_date, o.Order_status,
+        o.Payment_type, o.Create_at,
+        o.Update_at, o.AddressId
        FROM orders o
        WHERE o.Id = ? AND o.UserId = ?`,
       [orderId, userId]
@@ -81,11 +81,11 @@ export const getOrderDetailMobile = async (req, res) => {
     // Lấy chi tiết items
     const [items] = await db.query(
       `SELECT 
-        od.Id, od.OrderId as orderId, od.ProductId as productId,
-        od.Quantity as quantity, od.Unit_price as unitPrice,
-        od.Discount_percentage as discountPercentage,
-        od.Discount_amount as discountAmount,
-        p.Product_name as productName, p.picUrl as productImage
+        od.Id, od.OrderId, od.ProductId,
+        od.Quantity, od.Unit_price,
+        od.Discount_percentage,
+        od.Discount_amount,
+        p.Product_name, p.picUrl
        FROM order_detail od
        JOIN product p ON p.Id = od.ProductId
        WHERE od.OrderId = ?`,
@@ -122,7 +122,7 @@ export const createOrderMobile = async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    const { addressId, paymentMethod, items, note, shipFee = 0 } = req.body;
+    const { addressId, paymentMethod, note, shipFee = 0 } = req.body;
     const userId = req.user.Id;
 
     // Lấy thông tin địa chỉ
@@ -142,53 +142,84 @@ export const createOrderMobile = async (req, res) => {
     const address = addresses[0];
     const shipAddress = `${address.Address_detail} - ${address.Receiver_name} - ${address.Phone}`;
 
+    // Lấy giỏ hàng của user
+    const [carts] = await connection.query(
+      "SELECT Id FROM cart WHERE UserId = ?",
+      [userId]
+    );
+
+    if (carts.length === 0) {
+      await connection.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Giỏ hàng trống" 
+      });
+    }
+
+    const cartId = carts[0].Id;
+
+    // Lấy items từ cart_detail
+    const [cartItems] = await connection.query(`
+      SELECT cd.ProductId, cd.Quantity, cd.Unit_price, p.Product_name
+      FROM cart_detail cd
+      JOIN product p ON p.Id = cd.ProductId
+      WHERE cd.CartId = ?
+    `, [cartId]);
+
+    if (cartItems.length === 0) {
+      await connection.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Giỏ hàng trống" 
+      });
+    }
+
     // Tính tổng tiền
     let total = 0;
-    for (let item of items) {
-      total += item.quantity * item.unitPrice;
+    for (let item of cartItems) {
+      total += item.Quantity * item.Unit_price;
     }
     total += shipFee;
 
     // Tạo order
     const [orderResult] = await connection.query(
       `INSERT INTO orders 
-       (UserId, Ship_address, Ship_fee, Payment_type, Note, Order_status) 
-       VALUES (?, ?, ?, ?, ?, 'Pending')`,
-      [userId, shipAddress, shipFee, paymentMethod, note]
+       (UserId, Ship_address, Ship_fee, Payment_type, Note, Order_status, AddressId) 
+       VALUES (?, ?, ?, ?, ?, 'Pending', ?)`,
+      [userId, shipAddress, shipFee, paymentMethod, note, addressId]
     );
 
     const orderId = orderResult.insertId;
 
-    // Thêm order details
-    for (let item of items) {
+    // Thêm order details từ cart items
+    for (let item of cartItems) {
       await connection.query(
         `INSERT INTO order_detail 
          (OrderId, ProductId, Quantity, Unit_price) 
          VALUES (?, ?, ?, ?)`,
-        [orderId, item.productId, item.quantity, item.unitPrice]
+        [orderId, item.ProductId, item.Quantity, item.Unit_price]
       );
 
-      // Cập nhật inventory (nếu cần)
-      await connection.query(
-        `UPDATE inventory SET Stock = Stock - ? 
-         WHERE ProductId = ? AND WarehouseId = 1`,
-        [item.quantity, item.productId]
+      // Cập nhật inventory (nếu có)
+      const [inventory] = await connection.query(
+        `SELECT * FROM inventory WHERE ProductId = ?`,
+        [item.ProductId]
       );
+
+      if (inventory.length > 0) {
+        await connection.query(
+          `UPDATE inventory SET Stock = Stock - ? 
+           WHERE ProductId = ?`,
+          [item.Quantity, item.ProductId]
+        );
+      }
     }
 
     // Xóa cart
-    const [carts] = await connection.query(
-      "SELECT Id FROM cart WHERE UserId = ?",
-      [userId]
+    await connection.query(
+      "DELETE FROM cart_detail WHERE CartId = ?",
+      [cartId]
     );
-
-    if (carts.length > 0) {
-      const cartId = carts[0].Id;
-      await connection.query(
-        "DELETE FROM cart_detail WHERE CartId = ?",
-        [cartId]
-      );
-    }
 
     await connection.commit();
 

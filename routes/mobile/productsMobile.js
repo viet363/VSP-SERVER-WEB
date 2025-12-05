@@ -9,7 +9,7 @@ import {
 const router = express.Router();
 
 router.get("/", getProductListMobile);
-router.get("/:id", getProductDetailMobile);
+router.get("/search", searchProductsMobile);
 router.get("/:id/specifications", getProductSpecificationsMobile);
-router.get('/search', searchProductsMobile);
+router.get("/:id", getProductDetailMobile);
 export default router;

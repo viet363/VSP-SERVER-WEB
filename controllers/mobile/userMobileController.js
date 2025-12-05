@@ -29,7 +29,7 @@ export const upload = multer({
 
 export const getUserMobile = async (req, res) => {
   try {
-    const userId = req.user.Id;
+    const userId = req.user.Id; 
     
     const [users] = await db.query(
       "SELECT Id, Username, Email, Fullname, Gender, Birthday, Avatar, Phone, Create_at, Update_at, LoginType FROM user WHERE Id = ?",
@@ -72,12 +72,13 @@ export const getUserMobile = async (req, res) => {
 
 export const updateUserProfile = async (req, res) => {
   try {
-    const { id, fullname, email, phone } = req.body;
+    const userId = req.user.Id; 
+    const { fullname, email, phone } = req.body;
 
-    // Kiểm tra email đã tồn tại chưa (trừ user hiện tại)
+    // Kiểm tra email đã tồn tại chưa
     const [existingUsers] = await db.query(
       "SELECT * FROM user WHERE Email = ? AND Id != ?",
-      [email, id]
+      [email, userId]
     );
 
     if (existingUsers.length > 0) {
@@ -89,13 +90,12 @@ export const updateUserProfile = async (req, res) => {
 
     await db.query(
       "UPDATE user SET Fullname = ?, Email = ?, Phone = ?, Update_at = CURRENT_TIMESTAMP WHERE Id = ?",
-      [fullname, email, phone, id]
+      [fullname, email, phone, userId]
     );
 
-    // Lấy lại thông tin user sau khi update
     const [updatedUsers] = await db.query(
       "SELECT Id, Username, Email, Fullname, Gender, Birthday, Avatar, Phone, Create_at, Update_at, LoginType FROM user WHERE Id = ?",
-      [id]
+      [userId]
     );
 
     res.json({
@@ -113,15 +113,17 @@ export const updateUserProfile = async (req, res) => {
   }
 };
 
+
 export const updateUserWithAvatar = async (req, res) => {
   try {
-    const { id, fullname, email, phone } = req.body;
+    const userId = req.user.Id; 
+    const { fullname, email, phone } = req.body;
     const avatarPath = req.file ? `/uploads/avatars/${req.file.filename}` : null;
 
     // Kiểm tra email đã tồn tại chưa
     const [existingUsers] = await db.query(
       "SELECT * FROM user WHERE Email = ? AND Id != ?",
-      [email, id]
+      [email, userId]
     );
 
     if (existingUsers.length > 0) {

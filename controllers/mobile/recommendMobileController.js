@@ -1,47 +1,56 @@
 import { db } from "../../db.js";
 
-export const getRecommendedProducts = (req, res) => {
-    const { userId } = req.params;
+export const getRecommendedProducts = async (req, res) => {
+  try {
+    const userId = req.params.userId || req.user?.Id;
 
-    if (!userId) {
-        return res.status(400).json({ success: false, message: "Missing userId" });
+    if (!userId || isNaN(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or missing userId",
+      });
     }
 
-    const sql = `
-        SELECT 
-            p.Id,
-            p.Title,
-            p.Description,
-            p.Price,
-            p.ImageUrl,
-            p.Rating
-        FROM user_recommendation ur
-        JOIN product p ON ur.ProductId = p.Id
-        WHERE ur.UserId = ?
+    const [rows] = await db.query(
+      `
+      SELECT 
+        p.Id,
+        p.Product_name,
+        p.Description,
+        p.Price,
+        p.picUrl,
+        ur.Score
+      FROM user_recommendation ur
+      JOIN product p ON ur.ProductId = p.Id
+      WHERE ur.UserId = ?
         AND ur.Algorithm = 'ncf'
-        ORDER BY ur.Score DESC
-        LIMIT 10
-    `;
+        AND p.Product_status = 'Published'
+      ORDER BY ur.Score DESC
+      LIMIT 10
+      `,
+      [userId]
+    );
 
-    db.query(sql, [userId], (err, result) => {
-        if (err) {
-            console.log(err);
-            return res.status(500).json({ success: false, message: "Server error" });
-        }
+    const formattedData = rows.map((item) => ({
+      Id: item.Id,
+      Product_name: item.Product_name,
+      Description: item.Description,
+      Price: parseFloat(item.Price),
+      picUrl: item.picUrl,
+      Score: item.Score,
+    }));
 
-        const formattedData = result.map(item => ({
-            Id: item.Id,
-            Title: item.Title,
-            Description: item.Description,
-            Price: parseFloat(item.Price),
-            ImageUrl: item.ImageUrl,
-            Rating: item.Rating ? parseFloat(item.Rating) : null
-        }));
-
-        return res.json({
-            success: true,
-            count: formattedData.length,
-            data: formattedData
-        });
+    return res.json({
+      success: true,
+      count: formattedData.length,
+      data: formattedData,
     });
+  } catch (err) {
+    console.error("getRecommendedProducts error:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: err.message,
+    });
+  }
 };

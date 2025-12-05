@@ -29,14 +29,22 @@ export const getOrderById = async (req, res) => {
 
 export const createOrder = async (req, res) => {
   try {
-    const { UserId, Ship_address, Ship_fee, Payment_type, items } = req.body;
-    const [result] = await db.query(`INSERT INTO Orders (UserId, Ship_address, Ship_fee, Payment_type) VALUES (?, ?, ?, ?)`, [UserId, Ship_address, Ship_fee || 0, Payment_type]);
+    const { UserId, Ship_address, Ship_fee, Payment_type, AddressId, items } = req.body;
+    
+    const [result] = await db.query(
+      `INSERT INTO Orders (UserId, Ship_address, Ship_fee, Payment_type, AddressId) 
+       VALUES (?, ?, ?, ?, ?)`, 
+      [UserId, Ship_address, Ship_fee || 0, Payment_type, AddressId || null]
+    );
+    
     const orderId = result.insertId;
     for (const it of items) {
-      await db.query("INSERT INTO Order_detail (OrderId, ProductId, Quantity, Unit_price, Discount_percentage, Discount_amount) VALUES (?, ?, ?, ?, ?, ?)", [orderId, it.ProductId, it.Quantity, it.Unit_price, it.Discount_percentage || 0, it.Discount_amount || 0]);
-      // (optional) reduce inventory here or when status changed to Delivered
+      await db.query(
+        "INSERT INTO Order_detail (OrderId, ProductId, Quantity, Unit_price, Discount_percentage, Discount_amount) VALUES (?, ?, ?, ?, ?, ?)", 
+        [orderId, it.ProductId, it.Quantity, it.Unit_price, it.Discount_percentage || 0, it.Discount_amount || 0]
+      );
     }
-    res.status(201).json({ orderId });
+    res.status(201).json({ orderId, message: "Order created successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Lỗi server" });
@@ -49,11 +57,9 @@ export const updateOrderStatus = async (req, res) => {
     const { status } = req.body;
     await db.query("UPDATE Orders SET Order_status=?, Update_at=NOW() WHERE Id=?", [status, id]);
 
-    // nếu đổi sang Delivered -> trừ tồn kho (ví dụ logic đơn giản)
     if (status === "Delivered") {
       const [items] = await db.query("SELECT * FROM Order_detail WHERE OrderId=?", [id]);
       for (const it of items) {
-        // lấy inventory record (ví dụ chọn kho mặc định: first warehouse containing product)
         const [[inventory]] = await db.query("SELECT * FROM Inventory WHERE ProductId=? ORDER BY Stock DESC LIMIT 1", [it.ProductId]);
         if (inventory) {
           await db.query("UPDATE Inventory SET Stock = Stock - ? WHERE Id = ?", [it.Quantity, inventory.Id]);
