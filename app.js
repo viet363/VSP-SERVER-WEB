@@ -21,8 +21,15 @@ import mobilePaymentRoute from "./routes/mobile/paymentMobile.js";
 import mobileUserRoute from "./routes/mobile/userMobile.js";
 import mobileRecommendRoute from "./routes/mobile/recommendMobile.js";
 import mobileChatRoute from "./routes/mobile/chatMobile.js";
+import mobileReviewRoute from "./routes/mobile/reviewMobile.js";
 
 const app = express();
+
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    console.log('Origin:', req.headers.origin);
+    next();
+});
 
 const corsOptions = {
     origin: function (origin, callback) {
@@ -33,10 +40,11 @@ const corsOptions = {
             "http://192.168.3.84:4000", 
             "http://192.168.3.84",
             "http://localhost:8081",
-            "http://10.0.2.2:4000" 
+            "http://10.0.2.2:4000",
+            "*"
         ];
         
-        if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+        if (!origin || allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
             callback(null, true);
         } else {
             callback(new Error('Not allowed by CORS'));
@@ -69,7 +77,8 @@ app.use("/api/mobile/notification", mobileNotificationRoute);
 app.use("/api/mobile/payment", mobilePaymentRoute);
 app.use("/api/mobile/user", mobileUserRoute);
 app.use("/api/mobile/recommend", mobileRecommendRoute);
-app.use("/api/mobile/chat", mobileChatRoute); // <-- SỬ DỤNG ROUTER ĐÃ TÁCH
+app.use("/api/mobile/chat", mobileChatRoute); 
+app.use("/api/mobile/reviews", mobileReviewRoute);
 
 app.get("/", (req, res) => res.send("VPS backend is running"));
 

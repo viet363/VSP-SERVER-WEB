@@ -1,7 +1,6 @@
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 
-// Định nghĩa hàm
 const mobileAuth = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -15,10 +14,8 @@ const mobileAuth = async (req, res, next) => {
     
     const token = authHeader.split(" ")[1];
     
-    // Xác minh token
-    const decoded = jwt.verify(token, "SECRET_KEY"); // Thay bằng secret thực
+    const decoded = jwt.verify(token, "SECRET_KEY"); 
     
-    // Kiểm tra user
     const [[user]] = await db.query(
       "SELECT Id, Username, Email, Fullname, Avatar, Phone FROM user WHERE Id = ?",
       [decoded.id || decoded.userId]
@@ -31,7 +28,6 @@ const mobileAuth = async (req, res, next) => {
       });
     }
     
-    // Lưu thông tin
     req.userId = user.Id;
     req.user = user;
     

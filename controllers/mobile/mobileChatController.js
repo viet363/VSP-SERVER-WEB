@@ -291,3 +291,45 @@ export const getUnreadCount = async (req, res) => {
     });
   }
 };
+export const getUpdates = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const lastId = req.query.lastId || 0;
+
+    const [messages] = await db.query(
+      `SELECT 
+          cm.Id,
+          cm.UserId,
+          cm.AdminId,
+          cm.SenderId,
+          cm.Message,
+          cm.MessageType,
+          cm.IsRead,
+          cm.Created_at,
+          cm.ChatType,
+          CASE 
+            WHEN cm.SenderId = ? THEN 'user'
+            ELSE 'admin'
+          END as SenderType
+       FROM chat_message cm
+       WHERE cm.Id > ?
+         AND cm.UserId = ?
+       ORDER BY cm.Id ASC`,
+      [userId, lastId, userId]
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        messages
+      }
+    });
+
+  } catch (err) {
+    console.error("Get updates error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi server"
+    });
+  }
+};

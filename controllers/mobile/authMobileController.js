@@ -181,9 +181,7 @@ export const mobileLoginWithGoogle = async (req, res) => {
     if (!payload) {
       console.log("All verification attempts failed, using decoded token (DEVELOPMENT ONLY)");
       console.log("Last error:", lastError?.message);
-      
-      // CHO DEVELOPMENT: Sử dụng token đã decode (KHÔNG BẢO MẬT)
-      // CHỈ DÙNG CHO TESTING, KHÔNG DÙNG CHO PRODUCTION
+
       console.log("DEVELOPMENT MODE: Using unverified token");
       payload = decodedToken;
     }
@@ -282,7 +280,7 @@ export const mobileLoginWithGoogle = async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    console.log("✅ Google login successful for user:", email);
+    console.log("google login successful for user:", email);
 
     const response = {
       success: true,
@@ -306,7 +304,7 @@ export const mobileLoginWithGoogle = async (req, res) => {
     res.json(response);
 
   } catch (error) {
-    console.error("❌ Google login error:", error);
+    console.error("Google login error:", error);
     console.error("Error stack:", error.stack);
     
     // Check specific error types

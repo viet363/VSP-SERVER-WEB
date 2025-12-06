@@ -252,3 +252,29 @@ export const searchProductsMobile = async (req, res) => {
     });
   }
 };
+export const getProductByCategoryMobile = async (req, res) => {
+  try {
+    const categoryId = req.params.id;
+
+    const [products] = await db.query(`
+      SELECT 
+        p.Id,
+        p.Product_name,
+        p.Description,
+        p.Price,
+        p.picUrl,
+        p.CategoryId,
+        c.Category_name
+      FROM product p
+      LEFT JOIN category c ON p.CategoryId = c.Id
+      WHERE p.CategoryId = ?
+        AND (LOWER(p.Product_status) = 'published' OR p.Product_status IS NULL)
+      ORDER BY p.Id DESC
+    `, [categoryId]);
+
+    res.json({ success: true, products });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};

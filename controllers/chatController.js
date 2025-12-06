@@ -2,46 +2,56 @@ import { db } from '../db.js';
 
 export const getChatUsers = async (req, res) => {
   try {
-    const adminId = req.adminId;
-
     const [users] = await db.query(
-      `SELECT 
+      `SELECT DISTINCT 
           u.Id,
           u.Username,
           u.Email,
           u.Fullname,
           u.Avatar,
           u.Phone,
-          MAX(cm.Created_at) AS LastMessageTime,
-          SUM(CASE WHEN cm.IsRead = 0 AND cm.SenderId = u.Id THEN 1 ELSE 0 END) AS UnreadCount
-       FROM chat_message cm
-       JOIN user u ON cm.UserId = u.Id
-       WHERE cm.AdminId = ?
-       GROUP BY u.Id
-       ORDER BY LastMessageTime DESC`,
-      [adminId]
+          COALESCE(
+            (SELECT MAX(Created_at) 
+             FROM chat_message 
+             WHERE UserId = u.Id), 
+            u.Create_at
+          ) AS LastMessageTime,
+          COALESCE(
+            (SELECT COUNT(*) 
+             FROM chat_message 
+             WHERE UserId = u.Id 
+             AND IsRead = 0 AND SenderId = u.Id), 
+            0
+          ) AS UnreadCount
+       FROM user u
+       WHERE EXISTS (
+         SELECT 1 FROM chat_message cm 
+         WHERE cm.UserId = u.Id
+       )
+       ORDER BY LastMessageTime DESC`
     );
+
+    console.log("Users found:", users.length);
 
     return res.json({
       success: true,
       data: users,
-      adminId
+      count: users.length
     });
 
   } catch (error) {
-    console.error("Get users error:", error);
+    console.error("Get users error details:", error);
     return res.status(500).json({
       success: false,
-      message: "Lỗi server"
+      message: "Lỗi server",
+      error: error.message
     });
   }
 };
 
-
 export const getUserMessages = async (req, res) => {
   try {
     const userId = req.params.userId;
-    const adminId = req.adminId;
 
     const [messages] = await db.query(
       `SELECT 
@@ -59,9 +69,8 @@ export const getUserMessages = async (req, res) => {
        FROM chat_message cm
        JOIN user u ON u.Id = cm.SenderId
        WHERE cm.UserId = ?
-         AND cm.AdminId = ?
        ORDER BY cm.Created_at ASC`,
-      [userId, adminId]
+      [userId]
     );
 
     const unreadFromUser = messages.filter(
@@ -80,8 +89,7 @@ export const getUserMessages = async (req, res) => {
     return res.json({
       success: true,
       data: messages,
-      userId,
-      adminId
+      userId
     });
 
   } catch (error) {
@@ -93,10 +101,8 @@ export const getUserMessages = async (req, res) => {
   }
 };
 
-
 export const adminSendMessage = async (req, res) => {
   try {
-    const adminId = req.adminId;
     const { userId, message, messageType = "text" } = req.body;
 
     if (!userId || !message) {
@@ -106,7 +112,6 @@ export const adminSendMessage = async (req, res) => {
       });
     }
 
-    // Kiểm tra user có tồn tại
     const [userCheck] = await db.query(
       `SELECT Id FROM user WHERE Id = ?`,
       [userId]
@@ -119,7 +124,12 @@ export const adminSendMessage = async (req, res) => {
       });
     }
 
-    // Gửi tin nhắn
+    const [admin] = await db.query(
+      `SELECT Id FROM user WHERE Id IN (SELECT UserId FROM user_role WHERE RoleId = 1) LIMIT 1`
+    );
+
+    const adminId = admin.length > 0 ? admin[0].Id : 1;
+
     const [result] = await db.query(
       `INSERT INTO chat_message
         (UserId, AdminId, SenderId, Message, MessageType, IsRead, ChatType, Created_at)
@@ -130,7 +140,8 @@ export const adminSendMessage = async (req, res) => {
     return res.json({
       success: true,
       message: "Tin nhắn đã gửi",
-      messageId: result.insertId
+      messageId: result.insertId,
+      adminId
     });
 
   } catch (error) {
