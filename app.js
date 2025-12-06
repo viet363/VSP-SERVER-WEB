@@ -8,6 +8,7 @@ import dashboardRoute from "./routes/dashboard.js";
 import inventoryRoute from "./routes/inventory.js";
 import warehousesRoute from "./routes/warehouses.js";
 import authRouter from "./routes/auth.js";
+import chatRoute from "./routes/chat.js";
 import mobileAuthRoute from "./routes/mobile/authMobile.js";
 import mobileProductsRoute from "./routes/mobile/productsMobile.js";
 import mobileCategoriesRoute from "./routes/mobile/categoriesMobile.js";
@@ -19,6 +20,7 @@ import mobileNotificationRoute from "./routes/mobile/notificationMobile.js";
 import mobilePaymentRoute from "./routes/mobile/paymentMobile.js";
 import mobileUserRoute from "./routes/mobile/userMobile.js";
 import mobileRecommendRoute from "./routes/mobile/recommendMobile.js";
+import mobileChatRoute from "./routes/mobile/chatMobile.js";
 
 const app = express();
 
@@ -45,7 +47,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-
 app.use(express.json());
 
 app.use("/api/categories", categoriesRoute);
@@ -56,6 +57,7 @@ app.use("/api/dashboard", dashboardRoute);
 app.use("/api/inventory", inventoryRoute);
 app.use("/api/warehouses", warehousesRoute);
 app.use("/api", authRouter);
+app.use("/api/chat", chatRoute);
 app.use("/api/mobile/auth", mobileAuthRoute);
 app.use("/api/mobile/products", mobileProductsRoute);
 app.use("/api/mobile/categories", mobileCategoriesRoute);
@@ -67,7 +69,7 @@ app.use("/api/mobile/notification", mobileNotificationRoute);
 app.use("/api/mobile/payment", mobilePaymentRoute);
 app.use("/api/mobile/user", mobileUserRoute);
 app.use("/api/mobile/recommend", mobileRecommendRoute);
-
+app.use("/api/mobile/chat", mobileChatRoute); // <-- SỬ DỤNG ROUTER ĐÃ TÁCH
 
 app.get("/", (req, res) => res.send("VPS backend is running"));
 

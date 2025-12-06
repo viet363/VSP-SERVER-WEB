@@ -1,5 +1,7 @@
 import bcrypt from "bcrypt";
 import { db } from "../db.js";
+import jwt from "jsonwebtoken";
+
 
 export const register = async (req, res) => {
     const { username, password } = req.body;
@@ -79,7 +81,6 @@ export const login = async (req, res) => {
 
         const user = rows[0];
 
-        // So sánh password
         const match = await bcrypt.compare(password, user.Password);
 
         if (!match) {
@@ -90,8 +91,15 @@ export const login = async (req, res) => {
             return res.status(403).json({ message: "Bạn không có quyền đăng nhập admin" });
         }
 
+        const token = jwt.sign(
+            { id: user.Id, role: user.roleName },
+            "SECRET_KEY_CHAT", 
+            { expiresIn: "7d" }
+        );
+
         return res.json({
             message: "Đăng nhập thành công!",
+            token: token,
             user: {
                 id: user.Id,
                 username: user.Username,

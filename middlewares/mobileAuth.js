@@ -1,25 +1,65 @@
 import jwt from "jsonwebtoken";
 import { db } from "../db.js";
 
-export const mobileAuth = async (req, res, next) => {
-  const token = req.headers.authorization?.split(" ")[1];
-
-  if (!token)
-    return res.status(401).json({ success: false, message: "Missing token" });
-
+// Định nghĩa hàm
+const mobileAuth = async (req, res, next) => {
   try {
-    const decoded = jwt.verify(token, "SECRET_KEY");
-
-    const [[user]] = await db.query("SELECT * FROM user WHERE Id = ?", [
-      decoded.id,
-    ]);
-
-    if (!user)
-      return res.status(401).json({ success: false, message: "User not found" });
-
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Thiếu token xác thực" 
+      });
+    }
+    
+    const token = authHeader.split(" ")[1];
+    
+    // Xác minh token
+    const decoded = jwt.verify(token, "SECRET_KEY"); // Thay bằng secret thực
+    
+    // Kiểm tra user
+    const [[user]] = await db.query(
+      "SELECT Id, Username, Email, Fullname, Avatar, Phone FROM user WHERE Id = ?",
+      [decoded.id || decoded.userId]
+    );
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Người dùng không tồn tại" 
+      });
+    }
+    
+    // Lưu thông tin
+    req.userId = user.Id;
     req.user = user;
+    
     next();
-  } catch (err) {
-    return res.status(401).json({ success: false, message: "Invalid token" });
+    
+  } catch (error) {
+    console.error("Mobile auth error:", error);
+    
+    if (error.name === "JsonWebTokenError") {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Token không hợp lệ" 
+      });
+    }
+    
+    if (error.name === "TokenExpiredError") {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Token đã hết hạn" 
+      });
+    }
+    
+    return res.status(500).json({ 
+      success: false, 
+      message: "Lỗi xác thực" 
+    });
   }
 };
+
+export default mobileAuth;
+export { mobileAuth }; 
