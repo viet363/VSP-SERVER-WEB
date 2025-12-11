@@ -4,7 +4,6 @@ export const getCustomers = async (req, res) => {
   try {
     console.log('=== START getCustomers ===');
     
-    // Lấy user
     const [users] = await db.query(`
       SELECT 
         u.Id,
@@ -24,7 +23,6 @@ export const getCustomers = async (req, res) => {
         try {
           console.log(`Processing user ${user.Id}: ${user.Fullname}`);
           
-          // 1. Lấy địa chỉ mặc định từ bảng user_address
           const [addresses] = await db.query(
             `SELECT Address_detail, Is_default 
              FROM user_address 
@@ -38,14 +36,12 @@ export const getCustomers = async (req, res) => {
             ? addresses[0].Address_detail 
             : "Không có địa chỉ";
 
-          // 2. Tổng đơn hàng
           const [[orderResult]] = await db.query(
             `SELECT COUNT(*) AS total_orders FROM orders WHERE UserId = ?`,
             [user.Id]
           );
           const total_orders = orderResult?.total_orders || 0;
 
-          // 3. Tổng chi tiêu - TÍNH TỪ order_detail
           const [[spendResult]] = await db.query(
             `SELECT 
               SUM(od.Quantity * od.Unit_price - od.Discount_amount) AS total_spend
@@ -102,13 +98,11 @@ export const getCustomerById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Lấy thông tin user
     const [[user]] = await db.query("SELECT * FROM user WHERE Id=?", [id]);
     if (!user) {
       return res.status(404).json({ error: "Không tìm thấy khách hàng" });
     }
 
-    // Lấy địa chỉ
     const [addresses] = await db.query(
       `SELECT Address_detail, Is_default 
        FROM user_address 
@@ -122,13 +116,11 @@ export const getCustomerById = async (req, res) => {
       ? addresses[0].Address_detail 
       : "Không có địa chỉ";
 
-    // Count orders
     const [[{ total_orders = 0 }]] = await db.query(
       "SELECT COUNT(*) as total_orders FROM orders WHERE UserId=?", 
       [id]
     );
     
-    // Tổng chi tiêu - TÍNH TỪ order_detail
     const [[{ total_spend = 0 }]] = await db.query(
       `SELECT 
         SUM(od.Quantity * od.Unit_price - od.Discount_amount) AS total_spend

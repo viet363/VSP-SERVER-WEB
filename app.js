@@ -22,6 +22,10 @@ import mobileUserRoute from "./routes/mobile/userMobile.js";
 import mobileRecommendRoute from "./routes/mobile/recommendMobile.js";
 import mobileChatRoute from "./routes/mobile/chatMobile.js";
 import mobileReviewRoute from "./routes/mobile/reviewMobile.js";
+import promotionRoutes from "./routes/promotion.js";
+import { autoOrderStatus } from "./cron/autoOrderStatus.js";
+import specRoute from "./routes/spec.js";
+
 
 const app = express();
 
@@ -53,6 +57,7 @@ const corsOptions = {
     credentials: true,
     optionsSuccessStatus: 200
 };
+autoOrderStatus();
 
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -79,6 +84,9 @@ app.use("/api/mobile/user", mobileUserRoute);
 app.use("/api/mobile/recommend", mobileRecommendRoute);
 app.use("/api/mobile/chat", mobileChatRoute); 
 app.use("/api/mobile/reviews", mobileReviewRoute);
+app.use("/api/promotions", promotionRoutes);
+app.use("/api/specs", specRoute);
+
 
 app.get("/", (req, res) => res.send("VPS backend is running"));
 

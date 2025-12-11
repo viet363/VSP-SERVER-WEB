@@ -1,15 +1,17 @@
-import express from "express";
-import { mobileAuth } from "../../middlewares/mobileAuth.js";
+import express from 'express';
 import {
-  getWishlistMobile,
-  addWishlistMobile,
-  deleteWishlistMobile,
-} from "../../controllers/mobile/wishlistMobileController.js";
+  addToWishlist,
+  removeFromWishlist,
+  getUserWishlist,
+  checkWishlist
+} from '../../controllers/mobile/wishlistMobileController.js';
+import { mobileAuth } from '../../middlewares/mobileAuth.js';
 
 const router = express.Router();
 
-router.get("/", mobileAuth, getWishlistMobile);
-router.post("/", mobileAuth, addWishlistMobile);
-router.delete("/:productId", mobileAuth, deleteWishlistMobile);
+router.post('/add/:productId', mobileAuth, addToWishlist);
+router.delete('/remove/:productId', mobileAuth, removeFromWishlist);
+router.get('/my-wishlist', mobileAuth, getUserWishlist);
+router.get('/check/:productId', mobileAuth, checkWishlist);
 
 export default router;

@@ -3,11 +3,19 @@ import { db } from "../db.js";
 export const getOrders = async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT o.*, u.Fullname as customer_name
-      FROM Orders o
-      LEFT JOIN User u ON u.Id = o.UserId
+      SELECT 
+        o.*, 
+        u.Fullname AS customer_name,
+        (
+          SELECT COALESCE(SUM(od.Quantity * od.Unit_price - od.Discount_amount), 0)
+          FROM order_detail od
+          WHERE od.OrderId = o.Id
+        ) AS total
+      FROM orders o
+      LEFT JOIN user u ON u.Id = o.UserId
       ORDER BY o.Order_date DESC
     `);
+
     res.json(rows);
   } catch (err) {
     console.error(err);
@@ -15,32 +23,62 @@ export const getOrders = async (req, res) => {
   }
 };
 
+
+
 export const getOrderById = async (req, res) => {
   try {
     const { id } = req.params;
-    const [[order]] = await db.query("SELECT o.*, u.Fullname as customer_name, u.Phone, u.Email FROM Orders o LEFT JOIN User u ON u.Id = o.UserId WHERE o.Id=?", [id]);
-    const [items] = await db.query("SELECT od.*, p.Product_name FROM Order_detail od LEFT JOIN Product p ON p.Id = od.ProductId WHERE od.OrderId=?", [id]);
+
+    const [[order]] = await db.query(`
+      SELECT 
+        o.*, 
+        u.Fullname AS customer_name, 
+        u.Phone, 
+        u.Email,
+        (
+          SELECT COALESCE(SUM(od.Quantity * od.Unit_price - od.Discount_amount), 0)
+          FROM order_detail od
+          WHERE od.OrderId = o.Id
+        ) AS total
+      FROM orders o
+      LEFT JOIN user u ON u.Id = o.UserId
+      WHERE o.Id = ?
+    `, [id]);
+
+    const [items] = await db.query(`
+      SELECT 
+        od.*, 
+        p.Product_name,
+        (od.Quantity * od.Unit_price - od.Discount_amount) AS subtotal
+      FROM order_detail od
+      LEFT JOIN product p ON p.Id = od.ProductId
+      WHERE od.OrderId = ?
+    `, [id]);
+
     res.json({ order, items });
+
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Lỗi server" });
   }
 };
 
+
+
 export const createOrder = async (req, res) => {
   try {
     const { UserId, Ship_address, Ship_fee, Payment_type, AddressId, items } = req.body;
-    
+
     const [result] = await db.query(
       `INSERT INTO Orders (UserId, Ship_address, Ship_fee, Payment_type, AddressId) 
-       VALUES (?, ?, ?, ?, ?)`, 
+       VALUES (?, ?, ?, ?, ?)`,
       [UserId, Ship_address, Ship_fee || 0, Payment_type, AddressId || null]
     );
-    
+
     const orderId = result.insertId;
     for (const it of items) {
       await db.query(
-        "INSERT INTO Order_detail (OrderId, ProductId, Quantity, Unit_price, Discount_percentage, Discount_amount) VALUES (?, ?, ?, ?, ?, ?)", 
+        "INSERT INTO Order_detail (OrderId, ProductId, Quantity, Unit_price, Discount_percentage, Discount_amount) VALUES (?, ?, ?, ?, ?, ?)",
         [orderId, it.ProductId, it.Quantity, it.Unit_price, it.Discount_percentage || 0, it.Discount_amount || 0]
       );
     }
