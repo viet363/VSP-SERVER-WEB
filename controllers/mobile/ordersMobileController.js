@@ -125,7 +125,14 @@ export const createOrderMobile = async (req, res) => {
     const { addressId, paymentMethod, note, shipFee = 0 } = req.body;
     const userId = req.user.Id;
 
-    // Lấy thông tin địa chỉ
+    if (!addressId || !paymentMethod) {
+      await connection.rollback();
+      return res.status(400).json({ 
+        success: false, 
+        message: "Thiếu thông tin bắt buộc" 
+      });
+    }
+
     const [addresses] = await connection.query(
       "SELECT * FROM user_address WHERE Id = ? AND UserId = ?",
       [addressId, userId]
@@ -142,7 +149,6 @@ export const createOrderMobile = async (req, res) => {
     const address = addresses[0];
     const shipAddress = `${address.Address_detail} - ${address.Receiver_name} - ${address.Phone}`;
 
-    // Lấy giỏ hàng của user
     const [carts] = await connection.query(
       "SELECT Id FROM cart WHERE UserId = ?",
       [userId]
@@ -158,11 +164,12 @@ export const createOrderMobile = async (req, res) => {
 
     const cartId = carts[0].Id;
 
-    // Lấy items từ cart_detail
     const [cartItems] = await connection.query(`
-      SELECT cd.ProductId, cd.Quantity, cd.Unit_price, p.Product_name
+      SELECT cd.Id as cartDetailId, cd.ProductId, cd.Quantity, cd.Unit_price, 
+             p.Product_name, p.Price, i.Stock as availableStock
       FROM cart_detail cd
       JOIN product p ON p.Id = cd.ProductId
+      LEFT JOIN inventory i ON i.ProductId = p.Id
       WHERE cd.CartId = ?
     `, [cartId]);
 
@@ -174,69 +181,164 @@ export const createOrderMobile = async (req, res) => {
       });
     }
 
-    // Tính tổng tiền
-    let total = 0;
+    const productMap = new Map(); 
+    
     for (let item of cartItems) {
+      if (item.availableStock !== null && item.availableStock < item.Quantity) {
+        await connection.rollback();
+        return res.status(400).json({ 
+          success: false, 
+          message: `Sản phẩm "${item.Product_name}" không đủ tồn kho. Còn lại: ${item.availableStock}` 
+        });
+      }
+      
+      if (productMap.has(item.ProductId)) {
+        const existingItem = productMap.get(item.ProductId);
+        existingItem.Quantity += item.Quantity;
+      } else {
+        productMap.set(item.ProductId, {
+          ...item,
+          cartDetailIds: [item.cartDetailId] 
+        });
+      }
+    }
+
+    const uniqueCartItems = Array.from(productMap.values());
+
+    let total = 0;
+    for (let item of uniqueCartItems) {
       total += item.Quantity * item.Unit_price;
     }
-    total += shipFee;
+    total += parseFloat(shipFee);
 
-    // Tạo order
     const [orderResult] = await connection.query(
       `INSERT INTO orders 
        (UserId, Ship_address, Ship_fee, Payment_type, Note, Order_status, AddressId) 
        VALUES (?, ?, ?, ?, ?, 'Pending', ?)`,
-      [userId, shipAddress, shipFee, paymentMethod, note, addressId]
+      [userId, shipAddress, shipFee, paymentMethod, note || '', addressId]
     );
 
     const orderId = orderResult.insertId;
 
-    // Thêm order details từ cart items
-    for (let item of cartItems) {
-      await connection.query(
-        `INSERT INTO order_detail 
-         (OrderId, ProductId, Quantity, Unit_price) 
-         VALUES (?, ?, ?, ?)`,
-        [orderId, item.ProductId, item.Quantity, item.Unit_price]
+    for (let item of uniqueCartItems) {
+      const [existingItems] = await connection.query(
+        "SELECT Id FROM order_detail WHERE OrderId = ? AND ProductId = ?",
+        [orderId, item.ProductId]
       );
 
-      // Cập nhật inventory (nếu có)
-      const [inventory] = await connection.query(
-        `SELECT * FROM inventory WHERE ProductId = ?`,
-        [item.ProductId]
-      );
+      if (existingItems.length === 0) {
+        await connection.query(
+          `INSERT INTO order_detail 
+           (OrderId, ProductId, Quantity, Unit_price) 
+           VALUES (?, ?, ?, ?)`,
+          [orderId, item.ProductId, item.Quantity, item.Unit_price]
+        );
+      } else {
+        await connection.query(
+          `UPDATE order_detail 
+           SET Quantity = Quantity + ?, Unit_price = ?
+           WHERE OrderId = ? AND ProductId = ?`,
+          [item.Quantity, item.Unit_price, orderId, item.ProductId]
+        );
+      }
 
-      if (inventory.length > 0) {
+      if (item.availableStock !== null) {
         await connection.query(
           `UPDATE inventory SET Stock = Stock - ? 
            WHERE ProductId = ?`,
           [item.Quantity, item.ProductId]
         );
+
+        const [inventory] = await connection.query(
+          `SELECT WarehouseId, Stock FROM inventory WHERE ProductId = ?`,
+          [item.ProductId]
+        );
+        
+        if (inventory.length > 0) {
+          const currentStock = inventory[0].Stock - item.Quantity;
+          await connection.query(
+            `INSERT INTO inventory_log 
+             (ProductId, WarehouseId, Change_type, Quantity, Note, Current_stock)
+             VALUES (?, ?, 'OUT', ?, 'Order #${orderId}', ?)`,
+            [item.ProductId, inventory[0].WarehouseId, item.Quantity, currentStock]
+          );
+        }
       }
     }
-
-    // Xóa cart
     await connection.query(
       "DELETE FROM cart_detail WHERE CartId = ?",
       [cartId]
     );
 
     await connection.commit();
+    if (paymentMethod === 'VNPay') {
+      await connection.query(
+        `INSERT INTO payment 
+         (OrderId, Payment_method, Amount, Payment_status, Transaction_code)
+         VALUES (?, 'VNPay', ?, 'Pending', NULL)`,
+        [orderId, total]
+      );
+    }
 
     res.json({ 
       success: true, 
       message: "Tạo đơn hàng thành công",
-      orderId: orderId 
+      orderId: orderId,
+      totalAmount: total
     });
 
   } catch (error) {
     await connection.rollback();
     console.error("Create order error:", error);
+    
+    let errorMessage = "Lỗi server";
+    if (error.code === 'ER_DUP_ENTRY') {
+      errorMessage = "Sản phẩm đã tồn tại trong đơn hàng. Vui lòng thử lại.";
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: errorMessage + ": " + error.message 
+    });
+  } finally {
+    connection.release();
+  }
+};
+
+export const updateOrderStatus = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { status } = req.body;
+    const userId = req.user.Id;
+
+    // Kiểm tra order thuộc về user
+    const [orders] = await db.query(
+      "SELECT Id FROM orders WHERE Id = ? AND UserId = ?",
+      [orderId, userId]
+    );
+
+    if (orders.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Không tìm thấy đơn hàng" 
+      });
+    }
+
+    await db.query(
+      "UPDATE orders SET Order_status = ?, Update_at = NOW() WHERE Id = ?",
+      [status, orderId]
+    );
+
+    res.json({ 
+      success: true, 
+      message: "Cập nhật trạng thái thành công" 
+    });
+
+  } catch (error) {
+    console.error("Update order status error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Lỗi server" 
     });
-  } finally {
-    connection.release();
   }
 };

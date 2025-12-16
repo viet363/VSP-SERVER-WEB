@@ -4,6 +4,8 @@ import {
   getAddressMobile,
   addAddressMobile,
   deleteAddressMobile,
+   getDefaultAddressMobile,
+   updateAddressMobile
 } from "../../controllers/mobile/addressMobileController.js";
 
 const router = express.Router();
@@ -11,5 +13,6 @@ const router = express.Router();
 router.get("/", mobileAuth, getAddressMobile);
 router.post("/", mobileAuth, addAddressMobile);
 router.delete("/:id", mobileAuth, deleteAddressMobile);
+router.put("/:id", mobileAuth, updateAddressMobile);
 
 export default router;

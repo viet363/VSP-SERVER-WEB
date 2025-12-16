@@ -2,13 +2,23 @@ import { db } from "../../db.js";
 
 export const getCartMobile = async (req, res) => {
   try {
-    const userId = req.params.userId || req.user.Id;
+    const userId = req.user.Id;
 
     const [[cart]] = await db.query(
       "SELECT * FROM cart WHERE UserId = ?", [userId]
     );
 
-    if (!cart) return res.json({ success: true, items: [] });
+    if (!cart) {
+      const [result] = await db.query(
+        "INSERT INTO cart (UserId) VALUES (?)", [userId]
+      );
+      
+      return res.json({ 
+        success: true, 
+        cartId: result.insertId,
+        items: [] 
+      });
+    }
 
     const [items] = await db.query(`
       SELECT cd.Id, cd.Quantity, p.Id AS productId, p.Product_name AS productName,
@@ -38,6 +48,13 @@ export const addToCartMobile = async (req, res) => {
     const { productId, quantity = 1 } = req.body;
     const userId = req.user.Id;
 
+    if (!productId) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Thiếu productId" 
+      });
+    }
+
     // Tìm hoặc tạo cart
     const [carts] = await db.query(
       "SELECT Id FROM cart WHERE UserId = ?", [userId]
@@ -54,7 +71,7 @@ export const addToCartMobile = async (req, res) => {
 
     // Lấy giá sản phẩm
     const [products] = await db.query(
-      "SELECT Price FROM product WHERE Id = ? AND Product_status = 'Published'", 
+      "SELECT Id, Price, Product_name, picUrl FROM product WHERE Id = ? AND Product_status = 'Published'", 
       [productId]
     );
 
@@ -65,25 +82,33 @@ export const addToCartMobile = async (req, res) => {
       });
     }
 
-    const unitPrice = products[0].Price;
+    const product = products[0];
+    const unitPrice = product.Price;
 
     // Thêm vào cart_detail
     await db.query(`
       INSERT INTO cart_detail (CartId, ProductId, Quantity, Unit_price)
       VALUES (?, ?, ?, ?)
-      ON DUPLICATE KEY UPDATE Quantity = Quantity + ?, Unit_price = ?
-    `, [cartId, productId, quantity, unitPrice, quantity, unitPrice]);
+      ON DUPLICATE KEY UPDATE Quantity = Quantity + ?, Update_at = NOW()
+    `, [cartId, productId, quantity, unitPrice, quantity]);
 
     res.json({ 
       success: true, 
-      message: "Thêm vào giỏ hàng thành công" 
+      message: "Thêm vào giỏ hàng thành công",
+      cartItem: {
+        id: productId,
+        name: product.Product_name,
+        price: unitPrice,
+        image: product.picUrl,
+        quantity: quantity
+      }
     });
 
   } catch (error) {
     console.error("Add to cart error:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Lỗi server" 
+      message: "Lỗi server: " + error.message 
     });
   }
 };
@@ -92,17 +117,33 @@ export const updateCartMobile = async (req, res) => {
   try {
     const { id } = req.params;
     const { quantity } = req.body;
+    const userId = req.user.Id;
 
-    if (quantity <= 0) {
+    if (!quantity || quantity <= 0) {
       return res.status(400).json({ 
         success: false, 
         message: "Số lượng phải lớn hơn 0" 
       });
     }
 
-    await db.query("UPDATE cart_detail SET Quantity = ? WHERE Id = ?", [
-      quantity, id
-    ]);
+    const [cartItems] = await db.query(`
+      SELECT cd.Id 
+      FROM cart_detail cd
+      JOIN cart c ON c.Id = cd.CartId
+      WHERE cd.Id = ? AND c.UserId = ?
+    `, [id, userId]);
+
+    if (cartItems.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Không tìm thấy sản phẩm trong giỏ hàng" 
+      });
+    }
+
+    await db.query(
+      "UPDATE cart_detail SET Quantity = ?, Update_at = NOW() WHERE Id = ?", 
+      [quantity, id]
+    );
 
     res.json({ 
       success: true, 
@@ -121,6 +162,21 @@ export const updateCartMobile = async (req, res) => {
 export const deleteCartItemMobile = async (req, res) => {
   try {
     const { id } = req.params;
+    const userId = req.user.Id;
+
+    const [cartItems] = await db.query(`
+      SELECT cd.Id 
+      FROM cart_detail cd
+      JOIN cart c ON c.Id = cd.CartId
+      WHERE cd.Id = ? AND c.UserId = ?
+    `, [id, userId]);
+
+    if (cartItems.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        message: "Không tìm thấy sản phẩm trong giỏ hàng" 
+      });
+    }
 
     await db.query("DELETE FROM cart_detail WHERE Id = ?", [id]);
 
@@ -131,6 +187,41 @@ export const deleteCartItemMobile = async (req, res) => {
 
   } catch (error) {
     console.error("Delete cart item error:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Lỗi server" 
+    });
+  }
+};
+
+export const clearCartMobile = async (req, res) => {
+  try {
+    const userId = req.user.Id;
+
+    // Tìm cart của user
+    const [carts] = await db.query(
+      "SELECT Id FROM cart WHERE UserId = ?", [userId]
+    );
+
+    if (carts.length === 0) {
+      return res.json({ 
+        success: true, 
+        message: "Giỏ hàng đã trống" 
+      });
+    }
+
+    const cartId = carts[0].Id;
+
+    // Xóa tất cả items trong cart
+    await db.query("DELETE FROM cart_detail WHERE CartId = ?", [cartId]);
+
+    res.json({ 
+      success: true, 
+      message: "Đã xóa tất cả sản phẩm trong giỏ hàng" 
+    });
+
+  } catch (error) {
+    console.error("Clear cart error:", error);
     res.status(500).json({ 
       success: false, 
       message: "Lỗi server" 

@@ -11,7 +11,7 @@ const router = express.Router();
 
 router.post('/add/:productId', mobileAuth, addToWishlist);
 router.delete('/remove/:productId', mobileAuth, removeFromWishlist);
-router.get('/my-wishlist', mobileAuth, getUserWishlist);
+router.get('/', mobileAuth, getUserWishlist);
 router.get('/check/:productId', mobileAuth, checkWishlist);
 
 export default router;
