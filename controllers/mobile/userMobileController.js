@@ -1,7 +1,6 @@
 import { db } from "../../db.js";
 import bcryptjs from "bcryptjs";
-import fs from "fs";
-import path from "path";
+import { uploadToCloudinary, deleteFromCloudinary } from "../../utils/cloudinaryUpload.js";
 
 export const getUserMobile = async (req, res) => {
   try {
@@ -51,7 +50,6 @@ export const updateUserProfile = async (req, res) => {
     const userId = req.user.Id; 
     const { fullname, email, phone } = req.body;
 
-    // Kiểm tra email đã tồn tại chưa
     if (email) {
       const [existingUsers] = await db.query(
         "SELECT * FROM user WHERE Email = ? AND Id != ?",
@@ -101,30 +99,37 @@ export const updateUserWithAvatar = async (req, res) => {
     }
 
     const userId = req.user.Id; 
-    const avatarPath = `/uploads/avatars/${req.file.filename}`;
-    const fullUrl = `${req.protocol}://${req.get('host')}${avatarPath}`;
+    
+    const [users] = await db.query(
+      "SELECT Avatar FROM user WHERE Id = ?",
+      [userId]
+    );
+    
+    const oldAvatarUrl = users[0]?.Avatar;
+
+    const uploadResult = await uploadToCloudinary(req.file.buffer, userId);
+    const cloudinaryUrl = uploadResult.secure_url;
 
     console.log("Uploading avatar for user:", userId);
-    console.log("Avatar saved at:", req.file.path);
-    console.log("Avatar URL:", fullUrl);
+    console.log("Cloudinary URL:", cloudinaryUrl);
 
-    // Cập nhật database
     const [result] = await db.query(
       'UPDATE user SET Avatar = ?, Update_at = NOW() WHERE Id = ?',
-      [fullUrl, userId]
+      [cloudinaryUrl, userId]
     );
 
     if (result.affectedRows === 0) {
-      // Xóa file đã upload nếu update thất bại
-      fs.unlinkSync(req.file.path);
       return res.status(404).json({
         success: false,
         message: "Người dùng không tồn tại"
       });
     }
 
-    // Lấy thông tin user mới
-    const [users] = await db.query(
+    if (oldAvatarUrl && oldAvatarUrl.includes('cloudinary')) {
+      await deleteFromCloudinary(oldAvatarUrl);
+    }
+
+    const [updatedUsers] = await db.query(
       "SELECT Id, Username, Email, Fullname, Gender, Birthday, Avatar, Phone, Create_at, Update_at, LoginType FROM user WHERE Id = ?",
       [userId]
     );
@@ -132,37 +137,28 @@ export const updateUserWithAvatar = async (req, res) => {
     res.json({
       success: true,
       message: "Cập nhật avatar thành công",
-      avatarUrl: fullUrl,
+      avatarUrl: cloudinaryUrl,
       user: {
-        id: users[0].Id,
-        username: users[0].Username,
-        email: users[0].Email,
-        fullname: users[0].Fullname,
-        gender: users[0].Gender,
-        birthday: users[0].Birthday,
-        avatar: users[0].Avatar,
-        phone: users[0].Phone,
-        createAt: users[0].Create_at,
-        updateAt: users[0].Update_at,
-        loginType: users[0].LoginType
+        id: updatedUsers[0].Id,
+        username: updatedUsers[0].Username,
+        email: updatedUsers[0].Email,
+        fullname: updatedUsers[0].Fullname,
+        gender: updatedUsers[0].Gender,
+        birthday: updatedUsers[0].Birthday,
+        avatar: updatedUsers[0].Avatar,
+        phone: updatedUsers[0].Phone,
+        createAt: updatedUsers[0].Create_at,
+        updateAt: updatedUsers[0].Update_at,
+        loginType: updatedUsers[0].LoginType
       }
     });
 
   } catch (error) {
     console.error("Error uploading avatar:", error);
     
-    // Xóa file nếu có lỗi
-    if (req.file && req.file.path) {
-      try {
-        fs.unlinkSync(req.file.path);
-      } catch (e) {
-        console.error("Error deleting file:", e);
-      }
-    }
-    
     res.status(500).json({
       success: false,
-      message: "Lỗi server khi upload avatar"
+      message: `Lỗi server khi upload avatar: ${error.message}`
     });
   }
 };
