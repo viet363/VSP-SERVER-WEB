@@ -1,6 +1,5 @@
 import { db } from "../db.js";
 
-// Lấy danh sách toàn bộ khuyến mãi
 export const getPromotions = async (req, res) => {
     try {
         const [rows] = await db.query(`

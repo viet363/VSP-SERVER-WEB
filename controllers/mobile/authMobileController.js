@@ -1,5 +1,5 @@
 import { db } from "../../db.js";
-import bcrypt from "bcrypt";
+import bcryptjs from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
 
@@ -54,7 +54,7 @@ export const mobileLogin = async (req, res) => {
       });
     }
 
-    const match = await bcrypt.compare(password, user.Password);
+    const match = await bcryptjs.compare(password, user.Password);
 
     if (!match) {
       return res.status(401).json({
@@ -361,7 +361,7 @@ export const mobileRegister = async (req, res) => {
       }
     }
 
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcryptjs.hash(password, 10);
 
     const [result] = await db.query(
       "INSERT INTO user (Username, Password, Email, Fullname, LoginType) VALUES (?, ?, ?, ?, ?)",

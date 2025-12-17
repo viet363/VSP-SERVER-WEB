@@ -1,4 +1,4 @@
-import bcrypt from "bcrypt";
+import bcryptjs from "bcryptjs";
 import { db } from "../db.js";
 import jwt from "jsonwebtoken";
 
@@ -20,7 +20,7 @@ export const register = async (req, res) => {
             return res.status(400).json({ message: "Username đã tồn tại" });
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
+        const hashedPassword = await bcryptjs.hash(password, 10);
 
         const [result] = await db.query(
             "INSERT INTO user (Username, Password, Create_at) VALUES (?, ?, NOW())",
@@ -81,7 +81,7 @@ export const login = async (req, res) => {
 
         const user = rows[0];
 
-        const match = await bcrypt.compare(password, user.Password);
+        const match = await bcryptjs.compare(password, user.Password);
 
         if (!match) {
             return res.status(400).json({ message: "Sai tên đăng nhập hoặc mật khẩu" });

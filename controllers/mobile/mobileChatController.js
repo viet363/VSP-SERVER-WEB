@@ -1,6 +1,5 @@
 import { db } from '../../db.js';
 
-// Kiểm tra và tạo bảng chat_message nếu chưa có
 const checkChatTable = async () => {
   try {
     await db.query(`

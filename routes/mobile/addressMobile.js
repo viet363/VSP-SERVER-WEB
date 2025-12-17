@@ -4,7 +4,6 @@ import {
   getAddressMobile,
   addAddressMobile,
   deleteAddressMobile,
-   getDefaultAddressMobile,
    updateAddressMobile
 } from "../../controllers/mobile/addressMobileController.js";
 

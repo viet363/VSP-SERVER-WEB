@@ -1,6 +1,5 @@
-// controllers/mobile/userMobileController.js
 import { db } from "../../db.js";
-import bcrypt from "bcrypt";
+import bcryptjs from "bcryptjs";
 import fs from "fs";
 import path from "path";
 
@@ -194,7 +193,6 @@ export const changePassword = async (req, res) => {
 
     const user = users[0];
 
-    // Kiểm tra nếu user đăng nhập bằng Google
     if (user.LoginType === 'google') {
       return res.status(400).json({ 
         success: false, 
@@ -202,8 +200,7 @@ export const changePassword = async (req, res) => {
       });
     }
 
-    // Kiểm tra mật khẩu hiện tại
-    const match = await bcrypt.compare(currentPassword, user.Password);
+    const match = await bcryptjs.compare(currentPassword, user.Password);
     if (!match) {
       return res.status(400).json({ 
         success: false, 
@@ -212,7 +209,7 @@ export const changePassword = async (req, res) => {
     }
 
     // Hash mật khẩu mới
-    const hash = await bcrypt.hash(newPassword, 10);
+    const hash = await bcryptjs.hash(newPassword, 10);
 
     await db.query(
       "UPDATE user SET Password = ?, Update_at = CURRENT_TIMESTAMP WHERE Id = ?",

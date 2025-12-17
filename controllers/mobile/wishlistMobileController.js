@@ -5,7 +5,6 @@ export const addToWishlist = async (req, res) => {
     console.log("=== ADD TO WISHLIST DEBUG ===");
     const { productId } = req.params;
     
-    // Lấy userId từ cả 2 cách
     const userId = req.user?.id || req.userId;
     
     console.log("ProductId from params:", productId);
@@ -163,7 +162,6 @@ export const getUserWishlist = async (req, res) => {
 
     console.log("Found wishlist items:", rows.length);
 
-    // Parse picUrl từ JSON string nếu cần
     const wishlistItems = rows.map(item => {
       let picUrl = [];
       try {
