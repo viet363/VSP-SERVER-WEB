@@ -38,16 +38,16 @@ app.use((req, res, next) => {
 const corsOptions = {
     origin: function (origin, callback) {
         const allowedOrigins = [
-            "http://localhost:3000", 
+            "http://localhost:3000",
             "http://192.168.1.100:8081",
             "http://192.168.1.100:4000",
-            "http://192.168.3.84:4000", 
+            "http://192.168.3.84:4000",
             "http://192.168.3.84",
             "http://localhost:8081",
             "http://10.0.2.2:4000",
-            "*"
+            "https://vsp-web.vercel.app",
         ];
-        
+
         if (!origin || allowedOrigins.indexOf(origin) !== -1 || allowedOrigins.includes("*")) {
             callback(null, true);
         } else {
@@ -55,13 +55,21 @@ const corsOptions = {
         }
     },
     credentials: true,
-    optionsSuccessStatus: 200
+    optionsSuccessStatus: 200,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 };
 autoOrderStatus();
 
 app.use(cors(corsOptions));
 app.use(express.json());
 
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    time: new Date().toISOString()
+  });
+});
 app.use("/api/categories", categoriesRoute);
 app.use("/api/products", productsRoute);
 app.use("/api/customers", customersRoute);
@@ -82,7 +90,7 @@ app.use("/api/mobile/notification", mobileNotificationRoute);
 app.use("/api/mobile/payment", mobilePaymentRoute);
 app.use("/api/mobile/user", mobileUserRoute);
 app.use("/api/mobile/recommend", mobileRecommendRoute);
-app.use("/api/mobile/chat", mobileChatRoute); 
+app.use("/api/mobile/chat", mobileChatRoute);
 app.use("/api/mobile/reviews", mobileReviewRoute);
 app.use("/api/promotions", promotionRoutes);
 app.use("/api/specs", specRoute);
