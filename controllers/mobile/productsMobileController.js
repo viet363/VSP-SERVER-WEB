@@ -94,12 +94,10 @@ export const searchProductsMobile = async (req, res) => {
       });
     }
 
-    // Chuẩn hóa từ khóa (không dấu)
     const searchTerm = query.trim();
     const searchNoAccent = unidecode(searchTerm.toLowerCase());
     const offset = (page - 1) * limit;
 
-    // Kiểm tra FULLTEXT
     const [hasFulltext] = await db.query(`
       SELECT COUNT(*) as has_index
       FROM INFORMATION_SCHEMA.STATISTICS 
@@ -115,9 +113,6 @@ export const searchProductsMobile = async (req, res) => {
     let countParams;
 
     if (hasFulltext[0].has_index > 0) {
-      // ==============================
-      // 🔥 FULLTEXT MODE PRO
-      // ==============================
       sqlQuery = `
         SELECT 
           p.Id,
@@ -172,9 +167,6 @@ export const searchProductsMobile = async (req, res) => {
       ];
 
     } else {
-      // ==============================
-      // 🔥 NON-FULLTEXT MODE PRO
-      // ==============================
       sqlQuery = `
         SELECT 
           p.Id,
@@ -292,7 +284,6 @@ export const filterProductsMobile = async (req, res) => {
       limit = 20
     } = req.body;
 
-    // Validate input
     if (page < 1 || limit < 1) {
       return res.status(400).json({
         success: false,
@@ -324,7 +315,6 @@ export const filterProductsMobile = async (req, res) => {
     const conditions = [];
     const params = [];
 
-    // Apply filters
     if (categoryIds && categoryIds.length > 0) {
       conditions.push(`p.CategoryId IN (${categoryIds.map(() => '?').join(',')})`);
       params.push(...categoryIds);
@@ -350,21 +340,17 @@ export const filterProductsMobile = async (req, res) => {
       query += ` AND ${conditions.join(' AND ')}`;
     }
 
-    // Group by product
     query += ` GROUP BY p.Id`;
 
-    // Apply rating filter after GROUP BY
     if (minRating !== undefined && minRating > 0) {
       query += ` HAVING avg_rating >= ?`;
       params.push(minRating);
     }
 
-    // Apply in-stock filter
     if (inStock === true) {
       query += ` HAVING total_stock > 0`;
     }
 
-    // Apply sorting
     if (sortBy) {
       switch (sortBy) {
         case 'price_asc':
@@ -386,17 +372,14 @@ export const filterProductsMobile = async (req, res) => {
       query += ` ORDER BY p.Id DESC`;
     }
 
-    // Add pagination
     query += ` LIMIT ? OFFSET ?`;
     params.push(parseInt(limit), parseInt(offset));
 
     console.log("Filter query:", query);
     console.log("Filter params:", params);
 
-    // Execute query
     const [rows] = await db.query(query, params);
 
-    // Get total count for pagination
     let countQuery = `
       SELECT COUNT(DISTINCT p.Id) as total
       FROM product p
@@ -406,7 +389,7 @@ export const filterProductsMobile = async (req, res) => {
       WHERE (LOWER(p.Product_status) = 'published' OR p.Product_status IS NULL)
     `;
 
-    const countParams = params.slice(0, -2); // Remove LIMIT and OFFSET params
+    const countParams = params.slice(0, -2); 
 
     if (conditions.length > 0) {
       countQuery += ` AND ${conditions.join(' AND ')}`;
