@@ -4,11 +4,14 @@ import { db } from "../../db.js";
 
 export const createVNPayUrlMobile = async (req, res) => {
   try {
-    const { orderId, amount } = req.body;
+    const { orderId } = req.body;
     const userId = req.user.Id;
 
     const [orders] = await db.query(
-      "SELECT * FROM orders WHERE Id = ? AND UserId = ?",
+      `SELECT o.*, p.Amount, p.Id as paymentId
+       FROM orders o
+       LEFT JOIN payment p ON o.Id = p.OrderId
+       WHERE o.Id = ? AND o.UserId = ? AND o.Payment_type = 'VNPay'`,
       [orderId, userId]
     );
 
@@ -21,15 +24,24 @@ export const createVNPayUrlMobile = async (req, res) => {
 
     const order = orders[0];
 
-    if (order.Order_status === 'Paid') {
+    if (order.Order_status === 'Paid' || order.Order_status === 'Processing') {
       return res.status(400).json({ 
         success: false, 
         message: "Đơn hàng đã được thanh toán" 
       });
     }
 
+    if (!order.paymentId) {
+      const [paymentResult] = await db.query(
+        `INSERT INTO payment 
+         (OrderId, Payment_method, Amount, Payment_status)
+         VALUES (?, 'VNPay', ?, 'Pending')`,
+        [orderId, order.Amount || order.total]
+      );
+    }
+
     const vnp_Url = process.env.VNPAY_URL || "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html";
-    const vnp_ReturnUrl = process.env.VNPAY_RETURN_URL || "http://localhost:4000/api/mobile/payment/return";
+    const vnp_ReturnUrl = process.env.VNPAY_RETURN_URL || "http://192.168.1.102:4000/api/mobile/payment/return";
     const vnp_TmnCode = process.env.VNPAY_TMN_CODE || "LBU9HNGB";
     const vnp_HashSecret = process.env.VNPAY_HASH_SECRET || "8AY3Q3OC7IML0WOWLMBX9ZZGFLDB8TDZ";
 
@@ -49,6 +61,8 @@ export const createVNPayUrlMobile = async (req, res) => {
                    req.socket.remoteAddress || 
                    "127.0.0.1";
 
+    const amount = order.Amount || order.total;
+    
     let params = {
       vnp_Version: "2.1.0",
       vnp_Command: "pay",
@@ -60,8 +74,8 @@ export const createVNPayUrlMobile = async (req, res) => {
       vnp_Locale: "vn",
       vnp_OrderInfo: `Thanh toán đơn hàng ${orderId}`,
       vnp_OrderType: "other",
-      vnp_ReturnUrl: `${vnp_ReturnUrl}?userId=${userId}`,
-      vnp_TxnRef: `${Date.now()}-${orderId}-${userId}`,
+      vnp_ReturnUrl: `${vnp_ReturnUrl}?orderId=${orderId}&userId=${userId}`,
+      vnp_TxnRef: `${Date.now()}-${orderId}`,
     };
 
     const sorted = Object.keys(params)
@@ -92,22 +106,28 @@ export const createVNPayUrlMobile = async (req, res) => {
     console.error("Error creating VNPay URL:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Internal server error",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Internal server error"
     });
   }
 };
 
 export const vnpayReturnMobile = async (req, res) => {
+  const connection = await db.getConnection();
+  
   try {
+    await connection.beginTransaction();
+    
     let vnp_Params = req.query;
     
     console.log("VNPay Return - Received params:", vnp_Params);
 
-    if (!vnp_Params.vnp_ResponseCode || !vnp_Params.vnp_TxnRef) {
+    const orderId = req.query.orderId;
+    const userId = req.query.userId;
+
+    if (!orderId || !userId) {
       return res.status(400).json({ 
         success: false, 
-        message: "Thiếu tham số bắt buộc" 
+        message: "Thiếu thông tin đơn hàng hoặc người dùng" 
       });
     }
 
@@ -119,10 +139,9 @@ export const vnpayReturnMobile = async (req, res) => {
 
     const sortedParams = Object.keys(vnp_ParamsCopy)
       .sort()
+      .filter(key => vnp_ParamsCopy[key] !== '' && vnp_ParamsCopy[key] !== null && vnp_ParamsCopy[key] !== undefined)
       .reduce((acc, key) => {
-        if (vnp_ParamsCopy[key]) {
-          acc[key] = vnp_ParamsCopy[key];
-        }
+        acc[key] = vnp_ParamsCopy[key];
         return acc;
       }, {});
 
@@ -134,9 +153,6 @@ export const vnpayReturnMobile = async (req, res) => {
 
     if (secureHash !== signed) {
       console.error("Invalid signature!");
-      console.log("Expected:", secureHash);
-      console.log("Calculated:", signed);
-      
       return res.status(400).json({
         success: false,
         message: "Chữ ký không hợp lệ"
@@ -145,107 +161,98 @@ export const vnpayReturnMobile = async (req, res) => {
 
     const responseCode = vnp_Params.vnp_ResponseCode;
 
-    const txnRefParts = vnp_Params.vnp_TxnRef.split('-');
-    if (txnRefParts.length < 3) {
+    const [orderCheck] = await connection.query(
+      "SELECT * FROM orders WHERE Id = ? AND UserId = ?",
+      [orderId, userId]
+    );
+
+    if (orderCheck.length === 0) {
+      await connection.rollback();
       return res.status(400).json({
         success: false,
-        message: "Mã giao dịch không hợp lệ"
+        message: "Đơn hàng không thuộc về người dùng này"
       });
     }
-
-    const orderId = txnRefParts[1];
-    const userId = txnRefParts[2];
 
     if (responseCode === "00") {
       const amount = parseInt(vnp_Params.vnp_Amount) / 100;
 
-      console.log(`Payment successful for order ${orderId}, amount: ${amount}`);
+      await connection.query(
+        `UPDATE orders 
+         SET Order_status = 'Processing', 
+             Paid_date = NOW(),
+             Update_at = NOW()
+         WHERE Id = ?`,
+        [orderId]
+      );
 
-      const connection = await db.getConnection();
-      
-      try {
-        await connection.beginTransaction();
+      await connection.query(
+        `UPDATE payment 
+         SET Payment_status = 'Success',
+             Transaction_code = ?,
+             Paid_at = NOW()
+         WHERE OrderId = ? AND Payment_method = 'VNPay'`,
+        [vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef, orderId]
+      );
 
+      const [existingPayment] = await connection.query(
+        "SELECT Id FROM payment WHERE OrderId = ?",
+        [orderId]
+      );
+
+      if (existingPayment.length === 0) {
         await connection.query(
-          `UPDATE orders 
-           SET Order_status = 'Processing', 
-               Paid_date = NOW(),
-               Update_at = NOW()
-           WHERE Id = ? AND UserId = ?`,
-          [orderId, userId]
+          `INSERT INTO payment 
+           (OrderId, Payment_method, Amount, Payment_status, Transaction_code, Paid_at)
+           VALUES (?, 'VNPay', ?, 'Success', ?, NOW())`,
+          [orderId, amount, vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef]
         );
-
-        await connection.query(
-          `UPDATE payment 
-           SET Payment_status = 'Success',
-               Transaction_code = ?,
-               Paid_at = NOW()
-           WHERE OrderId = ? AND Payment_method = 'VNPay'`,
-          [vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef, orderId]
-        );
-
-        const [payments] = await connection.query(
-          "SELECT Id FROM payment WHERE OrderId = ?",
-          [orderId]
-        );
-
-        if (payments.length === 0) {
-          await connection.query(
-            `INSERT INTO payment 
-             (OrderId, Payment_method, Amount, Payment_status, Transaction_code, Paid_at)
-             VALUES (?, 'VNPay', ?, 'Success', ?, NOW())`,
-            [orderId, amount, vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef]
-          );
-        }
-
-        await connection.commit();
-
-        return res.json({
-          success: true,
-          message: "Thanh toán thành công",
-          orderId: orderId,
-          amount: amount,
-          transactionId: vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef
-        });
-
-      } catch (error) {
-        await connection.rollback();
-        console.error("Error updating payment status:", error);
-        return res.status(500).json({
-          success: false,
-          message: "Lỗi cập nhật trạng thái thanh toán"
-        });
-      } finally {
-        connection.release();
       }
+
+      await connection.commit();
+
+      return res.json({
+        success: true,
+        message: "Thanh toán thành công",
+        orderId: orderId,
+        amount: amount,
+        transactionId: vnp_Params.vnp_TransactionNo || vnp_Params.vnp_TxnRef
+      });
+
     } else {
       const errorMessages = {
-        "07": "Trừ tiền thành công. Giao dịch bị nghi ngờ (liên quan tới lừa đảo, giao dịch bất thường).",
-        "09": "Giao dịch không thành công do: Thẻ/Tài khoản của khách hàng chưa đăng ký dịch vụ InternetBanking tại ngân hàng.",
-        "10": "Giao dịch không thành công do: Khách hàng xác thực thông tin thẻ/tài khoản không đúng quá 3 lần",
-        "11": "Giao dịch không thành công do: Đã hết hạn chờ thanh toán. Xin quý khách vui lòng thực hiện lại giao dịch.",
-        "12": "Giao dịch không thành công do: Thẻ/Tài khoản của khách hàng bị khóa.",
-        "13": "Giao dịch không thành công do Quý khách nhập sai mật khẩu xác thực giao dịch (OTP). Xin quý khách vui lòng thực hiện lại giao dịch.",
-        "24": "Giao dịch không thành công do: Khách hàng hủy giao dịch",
-        "51": "Giao dịch không thành công do: Tài khoản của quý khách không đủ số dư để thực hiện giao dịch.",
-        "65": "Giao dịch không thành công do: Tài khoản của Quý khách đã vượt quá hạn mức giao dịch trong ngày.",
+        "07": "Trừ tiền thành công. Giao dịch bị nghi ngờ.",
+        "09": "Thẻ/Tài khoản chưa đăng ký dịch vụ InternetBanking.",
+        "10": "Xác thực thông tin thẻ/tài khoản không đúng quá 3 lần",
+        "11": "Đã hết hạn chờ thanh toán.",
+        "12": "Thẻ/Tài khoản bị khóa.",
+        "13": "Sai mật khẩu xác thực giao dịch (OTP).",
+        "24": "Khách hàng hủy giao dịch",
+        "51": "Tài khoản không đủ số dư.",
+        "65": "Tài khoản đã vượt quá hạn mức giao dịch trong ngày.",
         "75": "Ngân hàng thanh toán đang bảo trì.",
-        "79": "Giao dịch không thành công do: KH nhập sai mật khẩu thanh toán quá số lần quy định. Xin quý khách vui lòng thực hiện lại giao dịch",
-        "99": "Các lỗi khác (lỗi còn lại, không có trong danh sách mã lỗi đã liệt kê)"
+        "79": "Sai mật khẩu thanh toán quá số lần quy định.",
+        "99": "Lỗi không xác định"
       };
 
       const errorMessage = errorMessages[responseCode] || "Thanh toán thất bại";
 
-      try {
-        await db.query(
-          `UPDATE payment 
-           SET Payment_status = 'Failed'
-           WHERE OrderId = ? AND Payment_method = 'VNPay'`,
-          [orderId]
-        );
-      } catch (error) {
-        console.error("Error updating failed payment:", error);
-      }
+      await connection.query(
+        `UPDATE payment 
+         SET Payment_status = 'Failed'
+         WHERE OrderId = ? AND Payment_method = 'VNPay'`,
+        [orderId]
+      );
+
+      await connection.query(
+        `UPDATE orders 
+         SET Order_status = 'Pending',
+             Update_at = NOW()
+         WHERE Id = ?`,
+        [orderId]
+      );
+
+      await connection.commit();
 
       return res.json({
         success: false,
@@ -254,12 +261,14 @@ export const vnpayReturnMobile = async (req, res) => {
       });
     }
   } catch (error) {
+    await connection.rollback();
     console.error("Error processing VNPay return:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Lỗi server nội bộ",
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+      message: "Lỗi server nội bộ"
     });
+  } finally {
+    connection.release();
   }
 };
 
@@ -268,9 +277,11 @@ export const checkPaymentStatus = async (req, res) => {
     const { orderId } = req.params;
     const userId = req.user.Id;
 
-    // Kiểm tra order thuộc về user
     const [orders] = await db.query(
-      "SELECT Order_status FROM orders WHERE Id = ? AND UserId = ?",
+      `SELECT o.*, p.Payment_status, p.Transaction_code, p.Paid_at
+       FROM orders o
+       LEFT JOIN payment p ON o.Id = p.OrderId
+       WHERE o.Id = ? AND o.UserId = ?`,
       [orderId, userId]
     );
 
@@ -281,15 +292,14 @@ export const checkPaymentStatus = async (req, res) => {
       });
     }
 
-    const [payments] = await db.query(
-      "SELECT Payment_status, Transaction_code, Paid_at FROM payment WHERE OrderId = ?",
-      [orderId]
-    );
+    const order = orders[0];
 
     res.json({
       success: true,
-      orderStatus: orders[0].Order_status,
-      payment: payments[0] || null
+      orderStatus: order.Order_status,
+      paymentStatus: order.Payment_status,
+      transactionCode: order.Transaction_code,
+      paidAt: order.Paid_at
     });
 
   } catch (error) {

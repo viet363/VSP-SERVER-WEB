@@ -92,22 +92,103 @@ export const createOrder = async (req, res) => {
 export const updateOrderStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
-    await db.query("UPDATE Orders SET Order_status=?, Update_at=NOW() WHERE Id=?", [status, id]);
-
-    if (status === "Delivered") {
-      const [items] = await db.query("SELECT * FROM Order_detail WHERE OrderId=?", [id]);
-      for (const it of items) {
-        const [[inventory]] = await db.query("SELECT * FROM Inventory WHERE ProductId=? ORDER BY Stock DESC LIMIT 1", [it.ProductId]);
-        if (inventory) {
-          await db.query("UPDATE Inventory SET Stock = Stock - ? WHERE Id = ?", [it.Quantity, inventory.Id]);
-          const [[newInv]] = await db.query("SELECT Stock FROM Inventory WHERE Id=?", [inventory.Id]);
-          await db.query("INSERT INTO Inventory_log (ProductId, WarehouseId, Change_type, Quantity, Note, Current_stock) VALUES (?, ?, 'OUT', ?, ?, ?)", [it.ProductId, inventory.WarehouseId, it.Quantity, `Order ${id}`, newInv.Stock]);
-        }
-      }
+    const { Order_status, status } = req.body;
+    
+    const receivedStatus = Order_status || status;
+    
+    if (!receivedStatus) {
+      return res.status(400).json({ error: "Trạng thái không được để trống" });
     }
 
-    res.json({ message: "Status updated" });
+    const normalizedStatus = receivedStatus.charAt(0).toUpperCase() + receivedStatus.slice(1).toLowerCase();
+    
+    const validStatuses = ['Pending', 'Processing', 'Shipped', 'Delivered', 'Cancelled', 'Returned'];
+    if (!validStatuses.includes(normalizedStatus)) {
+      return res.status(400).json({ error: "Trạng thái không hợp lệ" });
+    }
+
+    // 1. Lấy trạng thái hiện tại của đơn hàng
+    const [[currentOrder]] = await db.query(
+      "SELECT Order_status FROM orders WHERE Id=?",
+      [id]
+    );
+
+    if (!currentOrder) {
+      return res.status(404).json({ error: "Không tìm thấy đơn hàng" });
+    }
+
+    const currentStatus = currentOrder.Order_status;
+    const newStatus = normalizedStatus;
+
+    // 2. Định nghĩa luồng chuyển trạng thái hợp lệ
+    const validTransitions = {
+      'Pending': ['Processing', 'Cancelled'], // Từ Pending chỉ được chuyển sang Processing hoặc Cancelled
+      'Processing': ['Shipped', 'Cancelled'], // Từ Processing chỉ được chuyển sang Shipped hoặc Cancelled
+      'Shipped': ['Delivered', 'Returned'],   // Từ Shipped chỉ được chuyển sang Delivered hoặc Returned
+      'Delivered': ['Returned'],              // Từ Delivered chỉ được chuyển sang Returned
+      'Cancelled': [],                        // Đã hủy thì không thể chuyển sang trạng thái khác
+      'Returned': []                          // Đã trả hàng thì không thể chuyển sang trạng thái khác
+    };
+
+    // 3. Kiểm tra xem có được phép chuyển trạng thái không
+    const allowedNextStatuses = validTransitions[currentStatus] || [];
+    
+    // Cho phép giữ nguyên trạng thái (không thay đổi)
+    if (newStatus === currentStatus) {
+      return res.json({ message: "Trạng thái không thay đổi" });
+    }
+
+    // Kiểm tra chuyển trạng thái có hợp lệ không
+    if (!allowedNextStatuses.includes(newStatus)) {
+      let errorMessage = `Không thể chuyển từ "${currentStatus}" sang "${newStatus}". `;
+      
+      if (allowedNextStatuses.length > 0) {
+        errorMessage += `Chỉ được phép chuyển sang: ${allowedNextStatuses.join(', ')}`;
+      } else {
+        errorMessage += `Đơn hàng đã ở trạng thái cuối cùng, không thể thay đổi.`;
+      }
+      
+      return res.status(400).json({ error: errorMessage });
+    }
+
+    // 4. Thực hiện cập nhật
+    await db.query(
+      "UPDATE orders SET Order_status=?, Update_at=NOW() WHERE Id=?",
+      [newStatus, id]
+    );
+
+    // 5. Gửi thông báo
+    const [[order]] = await db.query(
+      "SELECT UserId FROM orders WHERE Id=?",
+      [id]
+    );
+
+    const statusText = {
+      Pending: "đang chờ xác nhận",
+      Processing: "đang xử lý",
+      Shipped: "đang giao hàng",
+      Delivered: "đã giao thành công",
+      Cancelled: "đã hủy",
+      Returned: "đã trả hàng"
+    };
+
+    if (order && order.UserId) {
+      await db.query(
+        `INSERT INTO notification (UserId, Title, Message)
+         VALUES (?, ?, ?)`,
+        [
+          order.UserId,
+          "Cập nhật đơn hàng",
+          `Đơn hàng #${id} đã chuyển từ "${statusText[currentStatus]}" sang "${statusText[newStatus]}"`
+        ]
+      );
+    }
+
+    res.json({ 
+      message: "Cập nhật trạng thái thành công",
+      previousStatus: currentStatus,
+      newStatus: newStatus
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Lỗi server" });

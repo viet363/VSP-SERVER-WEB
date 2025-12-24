@@ -1,6 +1,6 @@
 import { db } from "../../db.js";
 
-export const getMyOrdersMobile = async (req, res) => {
+export const getOrders = async (req, res) => {
   try {
     const userId = req.user.Id;
 
@@ -20,7 +20,6 @@ export const getMyOrdersMobile = async (req, res) => {
       [userId]
     );
 
-    // Lấy chi tiết items cho mỗi order
     for (let order of orders) {
       const [items] = await db.query(
         `SELECT 
@@ -56,7 +55,6 @@ export const getOrderDetailMobile = async (req, res) => {
     const { orderId } = req.params;
     const userId = req.user.Id;
 
-    // Lấy thông tin order
     const [orders] = await db.query(
       `SELECT 
         o.Id, o.UserId, o.Order_date, o.Shipped_date,
@@ -78,7 +76,6 @@ export const getOrderDetailMobile = async (req, res) => {
 
     const order = orders[0];
 
-    // Lấy chi tiết items
     const [items] = await db.query(
       `SELECT 
         od.Id, od.OrderId, od.ProductId,
@@ -92,7 +89,6 @@ export const getOrderDetailMobile = async (req, res) => {
       [orderId]
     );
 
-    // Tính tổng tiền
     const [totals] = await db.query(
       `SELECT SUM(Quantity * Unit_price) as total
        FROM order_detail WHERE OrderId = ?`,
@@ -271,14 +267,14 @@ export const createOrderMobile = async (req, res) => {
     );
 
     await connection.commit();
-    if (paymentMethod === 'VNPay') {
-      await connection.query(
-        `INSERT INTO payment 
-         (OrderId, Payment_method, Amount, Payment_status, Transaction_code)
-         VALUES (?, 'VNPay', ?, 'Pending', NULL)`,
-        [orderId, total]
-      );
-    }
+    if (paymentMethod === 'VNPay' || paymentMethod === 'Momo') {
+  await connection.query(
+    `INSERT INTO payment 
+     (OrderId, Payment_method, Amount, Payment_status, Transaction_code)
+     VALUES (?, ?, ?, 'Pending', NULL)`,
+    [orderId, paymentMethod, total]
+  );
+}
 
     res.json({ 
       success: true, 
@@ -311,7 +307,6 @@ export const updateOrderStatus = async (req, res) => {
     const { status } = req.body;
     const userId = req.user.Id;
 
-    // Kiểm tra order thuộc về user
     const [orders] = await db.query(
       "SELECT Id FROM orders WHERE Id = ? AND UserId = ?",
       [orderId, userId]
@@ -341,4 +336,11 @@ export const updateOrderStatus = async (req, res) => {
       message: "Lỗi server" 
     });
   }
+};
+
+export default {
+  getOrders,
+  getOrderDetailMobile,
+  createOrderMobile,
+  updateOrderStatus
 };

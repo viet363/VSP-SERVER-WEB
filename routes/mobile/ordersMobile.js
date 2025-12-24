@@ -1,7 +1,7 @@
 import express from "express";
 import { mobileAuth } from "../../middlewares/mobileAuth.js";
 import {
-  getMyOrdersMobile,
+  getOrders,
   getOrderDetailMobile,
   createOrderMobile,
   updateOrderStatus
@@ -11,9 +11,9 @@ const router = express.Router();
 
 router.use(mobileAuth);
 
-router.get("/my", getMyOrdersMobile);
+router.get("/", getOrders);
 router.get("/:orderId", getOrderDetailMobile);
 router.post("/create", createOrderMobile);
-router.put("/:orderId/status", updateOrderStatus);
+router.patch("/:orderId/status", updateOrderStatus);
 
 export default router;

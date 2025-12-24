@@ -1,8 +1,8 @@
 import express from "express";
 import { mobileAuth } from "../../middlewares/mobileAuth.js";
-import { getNotificationMobile } from "../../controllers/mobile/notificationMobileController.js";
+import { getNotificationsMobile } from "../../controllers/mobile/notificationMobileController.js";
 
 const router = express.Router();
-router.get("/", mobileAuth, getNotificationMobile);
+router.get("/", mobileAuth, getNotificationsMobile);
 
 export default router;
